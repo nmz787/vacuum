@@ -330,7 +330,7 @@ class Mks901P(object):
         self.com_port_name = com_port_name
         if DEBUG:
             print('creating new MKS 901p object with baud of {}'.format(baud))
-        self.serial_port = serial.Serial(com_port_name, baudrate=baud)
+        self.serial_port = serial.Serial(com_port_name, baudrate=baud, timeout=1)
         #self.serial_port.read()
         self.pressure_unit = None
 
@@ -353,6 +353,8 @@ class Mks901P(object):
 
     def send_cmd(self, cmd, expected_response, address):
         cmd = cmd.format(address)
+        if not self.serial_port:
+            return('no connection')
         self.serial_port.write(bytes(cmd.encode()))
         raw_data = self.serial_port.read(len(expected_response))
         data = raw_data.decode()
@@ -369,6 +371,8 @@ class Mks901P(object):
 import os
 import sys
 import time
+from ds18b20 import DS18B20	
+
 this_files_path = os.path.abspath(__file__)
 
 if __name__ == '__main__':
@@ -378,6 +382,8 @@ if __name__ == '__main__':
     parser.add_argument("--find_baud", help='tries to access the sensor over all supported baud rates, prints which is successful', action="store_true")
     parser.add_argument("--baud", help='baud rate to connect with, defaults to 9600 (901p factory default)', type=int)
     parser.add_argument("-unit", help='print pressure unit with each reading', action="store_true")
+    parser.add_argument("-pi_lcd", help='print pressure to RasPi LCD', action="store_true")
+    parser.add_argument("-sleep", help='amount to sleep between pressure readings, default 1 second', type=int)
     args = parser.parse_args()
     com_port = args.serial_port
     if args.find_baud and not args.baud:
@@ -407,8 +413,38 @@ if __name__ == '__main__':
         else:
             m = Mks901P(com_port)
         unit = ''
+        sleep_time = 1
+        if args.sleep:
+            sleep_time = args.sleep
         if args.unit:
             unit = ' {}'.format(m.get_pressure_unit())
-        while True:
-            print('{}{}'.format(m.get_pressure_combined_4_digit(), unit))
-            time.sleep(1)
+        if args.pi_lcd:
+            import lcd
+            lcd.setup_gpio()
+            x = DS18B20()
+            count=x.device_count()
+            file_prefix = 'pressure_log_'
+            num_prev_files = len([item for item in os.listdir('.') if item.startswith(file_prefix)])
+            logfile = open(file_prefix+str(num_prev_files), 'w', buffering=128)
+            logfile.write(unit+'\n')
+            try:
+                while True:
+                    pressure = '{}'.format(m.get_pressure_combined_4_digit())
+                    pressure_float = float(pressure)
+                    pressure_string = '{}{}'.format(pressure, unit)
+                    temps = ' '.join([str(x.tempC(i)) for i in range(count)])
+                    logfile.write('{} {}\n'.format(pressure, temps))
+                    lcd.lcd_text(pressure_string, lcd.LCD_LINE_1)
+                    lcd.lcd_text('{}'.format(temps), lcd.LCD_LINE_2)
+                    time.sleep(sleep_time)
+            except KeyboardInterrupt:
+                pass 
+            finally:
+                lcd.lcd_write(0x01, lcd.LCD_CMD)
+                import RPi.GPIO as GPIO
+                lcd.lcd_text("Reading stopped!", lcd.LCD_LINE_1)
+                GPIO.cleanup()
+        else:
+            while True:
+                print('{}{}'.format(m.get_pressure_combined_4_digit(), unit))
+                time.sleep(sleep_time)
