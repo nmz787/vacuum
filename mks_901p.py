@@ -334,6 +334,23 @@ class Mks901P(object):
         #self.serial_port.read()
         self.pressure_unit = None
 
+    @classmethod
+    def baud_rate(cls):
+        # return: None or ((str) sensor ID, (str) baud_rate)
+        from subprocess import STDOUT, check_output, TimeoutExpired
+        for baud in baud_supported:
+            print("attempting to ask MKS 901p for it's baudrate using baudrate of {}".format(baud))
+            cmd = [sys.executable, this_files_path, com_port, '--find_baud', '--baud={}'.format(baud)]
+            try:
+                output = check_output(cmd, stderr=STDOUT, timeout=1)
+                if output:
+                    output = output.decode().split(',')
+                    output = [o.strip("() '\n") for o in output]
+                    print('sensor ({}) replied with baudrate of ({})'.format(output[0], output[1]))
+                    return (output[0], output[1])
+            except TimeoutExpired:
+                pass
+
     def get_pressure_unit(self, address=broadcast_address_1):
         cmd = commands['Calibration and adjustment information']['get_pressure_unit']
         expect = cmd['Response']
@@ -387,19 +404,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     com_port = args.serial_port
     if args.find_baud and not args.baud:
-        from subprocess import STDOUT, check_output, TimeoutExpired
-        for baud in baud_supported:
-            print("attempting to ask MKS 901p for it's baudrate using baudrate of {}".format(baud))
-            cmd = [sys.executable, this_files_path, com_port, '--find_baud', '--baud={}'.format(baud)]
-            try:
-                output = check_output(cmd, stderr=STDOUT, timeout=1)
-                if output:
-                    output = output.decode().split(',')
-                    output = [o.strip("() '\n") for o in output]
-                    print('sensor ({}) replied with baudrate of ({})'.format(output[0], output[1]))
-                    break
-            except TimeoutExpired:
-                pass
+        Mks901P.find_baud()
     elif args.find_baud and args.baud:
         if DEBUG:
             print('setting up connection using baudrate of: {}'.format(args.baud))
