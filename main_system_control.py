@@ -1,12 +1,15 @@
+import os
 import RPi.GPIO as GPIO
 from threading import Thread, Event, Timer
 from queue import Queue
 import time
 import lcd
+from mks_901p import Mks901P
+from ds18b20 import DS18B20
 
-
-vac_interface = Mks901P(com_port)
+vac_interface = Mks901P('/dev/ttyUSB0')
 pressure_unit = ' {}'.format(vac_interface.get_pressure_unit())
+print(pressure_unit)
 lcd.setup_gpio()
 thermal_interface = DS18B20()
 thermometer_count = thermal_interface.device_count()
@@ -38,7 +41,10 @@ emergency_stop = False
 
 def read_vac():
     while not emergency_stop:
-        pressure = '{}'.format(vac_interface.get_pressure_combined_4_digit())
+        pressure = vac_interface.get_pressure_combined_4_digit()
+        if not pressure:
+            continue
+        pressure = '{}'.format()
         pressure_float = float(pressure)
         pressure_string = '{}{}'.format(pressure, pressure_unit)
         vac_msg.put((pressure_float, pressure_string))
@@ -46,7 +52,10 @@ def read_vac():
 
 def read_therms():
     while not emergency_stop:
-        temp_list = [str(thermal_interface.tempC(i)) for i in range(thermometer_count)]
+        temp_list = [thermal_interface.tempC(i) for i in range(thermometer_count)]
+        if not all(temp_list):
+            continue
+        temp_list = [str(t) for t in temp_list]
         temp_string = ' '.join(temp_list)
         therm_msg.put(temp_list, temp_string)
 
@@ -81,6 +90,7 @@ def set_phase5_start():
     phase5_start=True
 
 def run_deposition():
+    phase=0
     while not emergency_stop:
         vac = None
         therm = None
